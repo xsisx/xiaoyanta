@@ -8,8 +8,8 @@
 		This immediately improves the seamless integration of the 3D Model into the scene.
 	</data>
 
-
-	<include url="%VIEWER%/plugins/webvr.xml" />
+	<include url="%VIEWER%/plugins/webvr.xml" devices="mobilevr" />
+	<webvr postracking="true" />
 	<include url="%VIEWER%/plugins/iphone_fullscreen_swipe.xml" />
 
 	<include url="%VIEWER%/plugins/controls3d.xml" />
@@ -52,8 +52,7 @@
 		scale="0.5"
 		depth="0"
 		tx="0" ty="10" tz="0"
-		ondown="drag3d();"
-		hittest="true"
+		ondown="drag3d();"		
 		/>
 		
 	
@@ -70,9 +69,6 @@
 		</image>
 	</scene>
 
-
-
-
 	<style name="info" type="text" css="color:#FFFFFF;text-align:center;" bg="false" txtshadow="0 1 4 0x000000 1.0" enabled="false" />
 	<style name="button" type="text" css="text-align:center;" padding="4 8" bgborder="0 0xFFFFFF 1" bgroundedge="1" bgshadow="0 1 4 0x000000 1.0" ondown="set(bgcolor, 0xDDDDDD);" onup="set(bgcolor, 0xFFFFFF);" />
 	<layer name="restview" style="button" keep="true" html="restview"  width="80" align="bottom" y="50" onclick="dollhouse_view();" />
@@ -85,9 +81,5 @@
 	<action name="dollhouse_off">
 		tween(view.oz, 0.0, 2.0);
 	</action>
-
-	<layer name="webvr_enterbutton" keep="true"
-		url="plugins/icon_vr.png" scale="0.5" alpha="1.0" align="leftbottom" x="18" y.normal="18" y.mobile="68"
-		/>
 
 </krpano>
