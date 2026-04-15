@@ -1,0 +1,142 @@
+﻿<krpano>
+	
+	<!--
+		minimap_zoomrect.xml
+		krpano 1.23
+		
+		https://krpano.com/plugins/xmlextensions/#minimap_zoomrect
+	
+		A helper script for adding a zooming-indicator for a mini-overview-map.
+		
+		A rectangle will be added within the image layer and the size and position
+		will automatically be updated depending on the zooming and panning.
+		Additionally the rectangle will be dragable to pan around and the map-image
+		will be clickable to pan to a certain position.
+		
+		Example:
+		
+		<layer name="minimap"
+		       url="map.jpg"
+		       bgborder="1 0xFFFFFF"
+		       align="lefttop" x="10" y="10"
+		       ...
+		       style="minimap_zoomrect"
+		       zoomrect_border="1 0x0000FF"
+		       zoomrect_dragable="true"
+		       zoomrect_movetoclick="true"
+		       zoomrect_dragdelay="0.95"
+		       zoomrect_showzoompercent="false"
+		       zoomrect_percentstyle=""
+		       />
+
+		Settings:
+		- zoomrect_border - bgborder style settings for the rect
+		- zoomrect_dragable - should the rect be dragable?
+		- zoomrect_movetoclick - move to the clicked position
+		- zoomrect_dragdelay - drag motion delay: from 0.0 (instant, no delay) to 0.99 (very slow, long delayed)
+		- zoomrect_showzoompercent - show a zoom percent value (based on the original image size)
+		- zoomrect_percentstyle - an optional <style> for styling the percent text
+	-->
+
+	<style name="minimap_zoomrect"
+		maskchildren="true"
+		handcursor="false"
+		onloaded.addevent="minimap_zoomrect_init();"
+		onclick.addevent="minimap_zoomrect_onclick_moveto();"
+		/>
+	
+	<action name="minimap_zoomrect_init" scope="local">
+		addlayer((caller.name+"_zoomrect"), zoomrect);
+		caller.zoomrect = zoomrect;
+		
+		if(!isvalue(caller.zoomrect_dragable),        def(caller.zoomrect_dragable,        boolean, true));
+		if(!isvalue(caller.zoomrect_movetoclick),     def(caller.zoomrect_movetoclick,     boolean, true));
+		if(!isvalue(caller.zoomrect_dragdelay),       def(caller.zoomrect_dragdelay,       number,  0.95));
+		if(!isvalue(caller.zoomrect_showzoompercent), def(caller.zoomrect_showzoompercent, boolean, false));
+		
+		caller.scalemode = "resize";
+		
+		set(zoomrect,
+			parent=get(caller.name),
+			keep=get(caller.keep),
+			type='container',
+			bgborder=calc(caller.zoomrect_border ? caller.zoomrect_border : '1 0x0000FF 1.0'),
+			bgcapture=true,
+			ondown='minimap_zoomrect_dragging();'
+		);
+		
+		if(caller.zoomrect_showzoompercent,
+
+			addlayer((caller.name+"_zoomtext"), percenttext);
+			caller.percenttext = percenttext;
+			
+			set(percenttext,
+				parent=get(caller.name),
+				type='text',
+				css='color:#FFFFFF; font-weight:bold;',
+				txtshadow='-1 -1 0 0, 0 -1 0 0, +1 -1 0 0, -1 0 0 0, +1 0 0 0, , -1 +1  0 0, 0 +1 0 0, +1 +1 0 0, 0 3 10 0 0.5',
+				bg=false,
+				align=bottom, x=0, y=4,
+				enabled=false
+			);
+			
+			if(caller.zoomrect_percentstyle,
+				percenttext.loadstyle(get(caller.zoomrect_percentstyle));
+			);
+		);
+		
+		calc(events[calc(caller.name+'_zoomrect')].onviewchanged, 'minimap_zoomrect_onviewchanged(' + caller.name + ')');
+		copy(events[calc(caller.name+'_zoomrect')].keep, caller.keep);
+	</action>
+	
+	<action name="minimap_zoomrect_onclick_moveto" scope="local">
+		if(caller.zoomrect_movetoclick,
+			caller.zoomrect.isdragging = false;
+			tween(view.hlookat, calc((caller.hitx-0.5) * image.hfov));
+			tween(view.vlookat, calc((caller.hity-0.5) * image.vfov));
+		);
+	</action>
+	
+	<action name="minimap_zoomrect_onviewchanged" scope="local" args="minimap_name">
+		minimap = layer[get(minimap_name)];
+		zoomrect = minimap.zoomrect;
+		percenttext = minimap.percenttext;
+		if (zoomrect.isdragging != true,
+			set(zoomrect.align, 'center');
+			calc(zoomrect.width, ((view.hfov / image.hfov) * 100) + '%');
+			calc(zoomrect.height, ((view.vfov / image.vfov) * 100) + '%');
+			calc(zoomrect.x, ((view.hlookat / image.hfov) * 100) + '%');
+			calc(zoomrect.y, ((view.vlookat / image.vfov) * 100) + '%');
+		);
+		
+		if(minimap.percenttext,
+			minimap.percenttext.text = "Zoom: " +roundval(view.pixelzoom*100,1) + '%';
+		);
+	</action>
+		
+	<action name="minimap_zoomrect_dragging" scope="local">
+		parentlayer = caller.parentobject;
+		if(parentlayer.zoomrect_dragable,
+			f = parentlayer.zoomrect_dragdelay;
+			asyncloop(caller.pressed,
+				caller.isdragging = true;
+				caller.align = 'lefttop';
+				caller.x = caller.pixelx + mouse.dx;
+				caller.y = caller.pixely + mouse.dy;
+				if(view.limitview != 'off',
+					clamp(caller.x, 0, (parentlayer.pixelwidth - caller.pixelwidth));
+					clamp(caller.y, 0, (parentlayer.pixelheight - caller.pixelheight));
+				);
+				h = image.hfov * ((caller.x + caller.pixelwidth/2) / parentlayer.pixelwidth - 0.5);
+				v = image.vfov * ((caller.y + caller.pixelheight/2) / parentlayer.pixelheight - 0.5);
+				view.hlookat = view.hlookat*f + (1-f)*h;
+				view.vlookat = view.vlookat*f + (1-f)*v;
+			  ,
+				tween(view.hlookat|view.vlookat,(h+'|'+v), (f*f*f), default, 
+					caller.isdragging = false;
+				);
+			);
+		);
+	</action>
+
+</krpano>

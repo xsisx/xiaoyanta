@@ -1,0 +1,748 @@
+﻿<krpano>
+
+	<!--
+		controls3d.xml
+		krpano 1.23
+
+		Extend krpano with controls for 3D environments.
+		
+		https://krpano.com/plugins/xmlextensions/#controls3d
+	-->
+
+	<!-- extend the krpano <control> object with additional settings (can be changed by redefining in the including xml) -->
+	<control
+		showinfos="false"
+		movemode="walking"
+		joypad.bool="true" 
+		levelcontrol.bool="true"
+		uizorder="99"
+		speed.number="0.5"
+		friction.number="0.9"
+		collision.bool="true"
+		groundcollision.bool="false"
+		usevrfloorlevel.bool="false"
+		eyelevel.number="160.0"
+		collisionlevel.number="100.0"
+		smoothlevelchanges.number="0.15"
+		stopdistance.number="30.0"
+		moveback.number="1.2"
+		bounceback.number="1.6"
+		dollydistance.number="0.5"
+		/>
+
+	<!-- remove the default keyboard pano-controls -->
+	<control keycodesleft="" keycodesright="" keycodesup="" keycodesdown="" />
+
+	<!-- automatically switch between first-person and object-rotate controls modes depending on the object viewing distance  -->
+	<control dragscale="link:view.oz:view.oz GT 100 ? -1.0 : 0" />
+	
+	
+	<action name="init3dcontrols" autorun="preinit" type="js"><![CDATA[
+		
+		var view = krpano.view;
+		var dir = view.dir;
+		var control = krpano.control;
+		var mouse = krpano.mouse;
+		var keyboard = krpano.keyboard;
+		var keyspressed = keyboard.pressedphysical;
+		var velocity = control.velocity = new krpano.math.vec3();
+		var diraccel = control.diraccel = new krpano.math.vec3();
+		var mwheel_inertia = 0.0;
+		var vr_hlookat_speed = 0;
+		var touchpad_last_axis = [[0,0],[0,0]];
+		var jumping = false;
+		var touchpad_move_speed = 5.0;
+		var touchpad_rotate_speed = 1.5;
+		var joystick_move_speed = 1.0;
+		var joystick_rotate_speed = 1.0;
+
+
+		// skip if already added or if the krpano version is too old
+		if (control.have3dcontrols || krpano.build < "2025-06-01") return;
+		control.have3dcontrols = true;
+		
+		
+		function add_view_dependent_velocity(dx,dy,dz)
+		{
+			var dm = [dir.rx, dir.ux, dir.x,
+					  dir.ry, dir.uy, dir.y,
+					  dir.rz, dir.uz, dir.z];
+
+			if (control.movemode == "walking")
+			{
+				// if the front vector is too small, use the up vector instead
+				if (dm[2]*dm[2] + dm[8]*dm[8] < 0.1)
+				{
+
+					var sign = dm[5] < 0 ? -1 : +1;
+					dm[2] = sign * dm[1];
+					dm[8] = sign * dm[7];
+				}
+
+				// normalize to make the XZ speed independent of the vertical looking
+				var l = Math.sqrt(dm[2]*dm[2] + dm[8]*dm[8]);
+				if (l > 0){ dm[2] /= l; dm[8] /= l; };
+				
+				velocity.x += dx*dm[0] + dz*dm[2];
+				velocity.y -= dy;
+				velocity.z += dx*dm[6] + dz*dm[8];
+			}
+			else
+			{
+				velocity.x += dx*dm[0] + dy*dm[1] + dz*dm[2];
+				velocity.y += dx*dm[3] + dy*dm[4] + dz*dm[5];
+				velocity.z += dx*dm[6] + dy*dm[7] + dz*dm[8];
+			}
+		}
+		
+		
+		// implement custom mousewheel controls 
+		control.registerattribute("wheelmode", "zoom", function(wheelmode, oldwheelmode)
+		{
+			if (oldwheelmode == "dolly zoom")
+			{
+				krpano.actions.unlink("view.oz");
+			}
+			
+			var original_oz = krpano.xml.view.oz || 0.0;
+			
+			if (wheelmode == "zoom")
+			{
+				control.mousefovchange = 1.0;
+				control.touchzoom = true;
+				view.adjustoffset(0,0,original_oz);
+			}
+			else if(wheelmode == "dolly zoom")
+			{
+				control.mousefovchange = 1.0;
+				control.touchzoom = true;
+				view.tx -= view.ox_rotated;
+				view.ty -= view.oy_rotated;
+				view.tz -= view.oz_rotated;
+				krpano.actions.link("view.oz", "view.fov|control.dollydistance:control.dollydistance * 0.5 * stageheight / tan(view.vfov*0.5*Math.PI/180)");
+				krpano.actions.updatelink("view.oz");
+				view.update();
+				view.tx += view.ox_rotated;
+				view.ty += view.oy_rotated;
+				view.tz += view.oz_rotated;
+			}
+			else if (wheelmode == "distance")
+			{
+				control.mousefovchange = 0.0;
+				control.touchzoom = false;
+			}
+			else if (wheelmode == "move")
+			{
+				view.adjustoffset(0,0,original_oz);
+				control.movemode = "flying";
+				control.mousefovchange = 0.0;
+				control.touchzoom = false;
+			}
+		});
+
+		krpano.events.addListener("onwheel", function()
+		{
+			if (krpano.wheeldelta_touchscale)	// no touch events here
+				return;
+
+			var wheelmode = control.wheelmode;
+
+			if (wheelmode == "distance")
+			{
+				mwheel_inertia += control.speed * (krpano.wheeldelta / 3.0);
+				mwheel_inertia = krpano.clampNumber(mwheel_inertia, -control.fovspeed, +control.fovspeed);
+			}
+			else if (wheelmode == "move")
+			{
+				var f = 20.0 * control.speed * (krpano.wheeldelta / 3.0);
+				add_view_dependent_velocity(0,0,f);
+			}
+		});
+		
+		krpano.events.addListener("onkeydown", function()
+		{
+			var keyname = keyboard.keyname;
+			var physicalkey = keyboard.physicalkey;
+			
+			if      (physicalkey == "ArrowUp"    || physicalkey == "KeyW")	diraccel.z = +1;
+			else if (physicalkey == "ArrowDown"  || physicalkey == "KeyS")	diraccel.z = -1;
+			else if (physicalkey == "ArrowLeft"  || physicalkey == "KeyA")	diraccel.x = -1;
+			else if (physicalkey == "ArrowRight" || physicalkey == "KeyD")	diraccel.x = +1;
+			else if (physicalkey == "Space"      || physicalkey == "KeyQ")	diraccel.y = +1;
+			else if (physicalkey == "KeyE"       || physicalkey == "KeyZ")	diraccel.y = -1;
+			
+			if (keyname == "r")			// reset view, move back to the startup view
+			{
+				krpano.view.hlookat = krpano.functions.adjust360(krpano.view.hlookat);
+				krpano.tween(krpano.view, krpano.xml.view);
+			}
+			else if (keyname == "f")	// switch between walking and flying mode
+			{
+				krpano.call("switch(control.movemode, 'walking', 'flying'); controls_showinfo(('Mode: ' + capitalize(control.movemode)));");
+			}
+			else if (keyname == "c")	// switch collision on/off
+			{
+				krpano.call("switch(control.collision); controls_showinfo(('Collision: ' + (control.collision ? 'On' : 'Off')));");
+			}
+		});
+		
+		krpano.events.addListener("onkeyup", function()
+		{
+			var physicalkey = keyboard.physicalkey;
+			
+			if      (physicalkey == "ArrowUp"    || physicalkey == "KeyW")	diraccel.z = 0;
+			else if (physicalkey == "ArrowDown"  || physicalkey == "KeyS")	diraccel.z = 0;
+			else if (physicalkey == "ArrowLeft"  || physicalkey == "KeyA")	diraccel.x = 0;
+			else if (physicalkey == "ArrowRight" || physicalkey == "KeyD")	diraccel.x = 0;
+			else if (physicalkey == "Space"      || physicalkey == "KeyQ")	diraccel.y = 0;
+			else if (physicalkey == "KeyE"       || physicalkey == "KeyZ")	diraccel.y = 0;
+		});
+		
+		krpano.events.addListener("ongesture", function()
+		{
+			var view = krpano.view;
+			var gesture = krpano.gesture;
+			var dir = view.dir;
+
+			if (gesture.event == "start")
+			{
+				if (krpano.control.touchzoom == false)
+				{
+					krpano.stopdelayedcall("splattools_ongesture_restore_touchzoom");
+				}
+			}
+			else if (gesture.event == "end")
+			{
+				krpano.delayedcall("splattools_ongesture_restore_touchzoom", 1.2, function()
+				{
+					krpano.control.touchzoom = true;
+				});
+				return;
+			}
+
+			var sd = Math.sqrt(krpano.stagewidth*krpano.stagewidth + krpano.stageheight*krpano.stageheight);
+			var mx = (gesture.centerx - gesture.startx) / sd;
+			var my = (gesture.centery - gesture.starty) / sd;
+			var md = Math.sqrt(mx*mx + my*my);
+
+			if (krpano.control.touchzoom && (md > 0.11 || Math.abs(gesture.rotation) > 30))
+			{
+				krpano.control.touchzoom = false;
+				krpano.stopdelayedcall("splattools_ongesture_restore_touchzoom");
+			}
+
+			if (krpano.control.touchzoom == false)
+			{
+				var s = 0.5 * krpano.control.speed;
+				var dx = gesture.dx;
+				var dy = gesture.dy;
+				var dz = 200.0 * gesture.deltascale;
+
+				view.hlookat -= gesture.deltarotation * (view.vlookat/90);
+
+				add_view_dependent_velocity(-s * dx, s * dy, s * dz);
+			}
+		});
+		
+		krpano.events.addListener("webvr_onvrcontrollerbutton", function(hs)
+		{
+			// exit the VR mode using the menu button '=' on the left controller
+			// - on the Quest 2 that button has the index 7
+			// - on the Quest 3 that button has the index 12
+			
+			if (hs.vrcontroller.hand == "left" && (hs.vrbuttonindex == 7 || hs.vrbuttonindex == 12) && hs.vrbuttonstate == "down")
+			{
+				krpano.delayedcall(0.5, function(){ krpano.webvr.exitvr(); });
+			}
+		});
+
+		
+		var lasttick = krpano.timertick;
+
+		krpano.actions.renderloop( function()
+		{
+			var tick = krpano.timertick;
+			var dt = tick - lasttick;
+			lasttick = tick;
+		
+			var webvr = krpano.webvr && krpano.webvr.isenabled ? krpano.webvr : null;
+			var friction = control.friction;
+			var frame_acceleration = 1.0;
+			var inertia = 1.0;
+			var smoothlevelchanges = control.smoothlevelchanges;
+			var ty_raycast_offset = 0.0;
+			
+			// adjust the friction and acceleration depending on the framerate (an experimental API)
+			if (krpano.display.getAdaptiveFrictions)
+			{
+				var adjustedmovment = krpano.display.getAdaptiveFrictions(friction, frame_acceleration/friction, inertia, "fast");
+				friction = adjustedmovment.friction;
+				frame_acceleration = adjustedmovment.accel * friction;
+				inertia = adjustedmovment.inertia;
+			}
+			
+			if (control.movemode == "off")
+			{
+				velocity.set(0,0,0);
+				return;
+			}
+			
+			if (control.wheelmode == "distance")
+			{
+				if (mwheel_inertia != 0)
+				{
+					view.oz = Math.max(0.0, view.oz - Math.pow(Math.max(view.oz,50),0.6) * 0.5 * mwheel_inertia);
+				
+					mwheel_inertia *= friction;
+					if ( Math.abs(mwheel_inertia) < 0.001 )
+					{
+						mwheel_inertia = 0;
+					}
+				}
+			}
+
+			var do_ground_collision = (control.collision && control.groundcollision && control.movemode == "walking" && view.oz < 200);
+			if (do_ground_collision)
+			{
+				ty_raycast_offset = control.eyelevel - control.collisionlevel;
+			}
+
+			velocity.scale(friction);
+			if (velocity.length() < 0.01)
+			{
+				velocity.set(0,0,0);
+			}
+
+			vr_hlookat_speed *= friction;
+			if (vr_hlookat_speed*vr_hlookat_speed < 0.01)
+				vr_hlookat_speed = 0;
+
+			var movefaster = keyspressed["ShiftLeft"] || keyspressed["ShiftRight"];
+
+			// handle the touchpad or joystick input from the vr-controllers
+			var vrcontrollers = webvr ? webvr.vrcontrollers : null;
+			if (vrcontrollers)
+			{
+				var vrcontrollers_count = vrcontrollers.length;
+				for (var i=0; i < vrcontrollers_count; i++)
+				{
+					var controller = vrcontrollers[i];
+					var axes = controller.axes;
+
+					if (axes)
+					{
+						// when having a depthmap: move around (1), otherwise only rotate the pano (0)
+						var controlmode = (krpano.display.havedepthmap || krpano.display.depthbuffer) ? 1 : 0;
+						
+						// when having two controllers use the touchpad/joystick from the right one only for rotating
+						if (vrcontrollers_count == 2 && controller.hand == "right")
+							controlmode = 0;
+
+						// joystick or touchpad?
+						var y_axis_scale = +1.3;
+						var is_touchpad = false;
+
+						if (webvr.iswebxr)
+						{
+							// WebXR: axes[0,1] = touchpad, axes[2,3] = thumbstick
+							if ( axes[0] != 0 || axes[1] != 0 )
+							{
+								is_touchpad = true;
+							}
+							else
+							{
+								// thumbstick - map axes for further processing
+								axes = [axes[2],axes[3]];
+							}
+						}
+
+						if (do_ground_collision)
+						{
+							var buttons = controller.buttons;
+
+							// use buttons on the VR controllers for running and jumping
+							if (controller.hand == "left")
+							{
+								movefaster = buttons[0] && buttons[0].pressed;
+							}
+							else if (controller.hand == "right")
+							{
+								diraccel.y = buttons[4] && buttons[4].pressed ? 1.0 : 0.0;
+							}
+						}
+
+						if (is_touchpad)
+						{
+							//  special touchpad control (swiping like)
+							if (axes[0] != 0 && axes[1] != 0)
+							{
+								var dx = +(axes[0] - touchpad_last_axis[i][0]);
+								var dz = -(axes[1] - touchpad_last_axis[i][1]) * y_axis_scale;
+								touchpad_last_axis[i][0] = axes[0];
+								touchpad_last_axis[i][1] = axes[1];
+
+								if (Math.abs(dx) > 0.3) dx = 0;		// too fast changes are probably no swipes
+								if (Math.abs(dz) > 0.3) dz = 0;
+
+								if (controlmode == 0)	// rotate
+								{
+									vr_hlookat_speed += touchpad_rotate_speed * dx;
+								}
+								else	// move
+								{
+									add_view_dependent_velocity(dx * frame_acceleration * touchpad_move_speed, 0, dz * frame_acceleration * touchpad_move_speed);
+								}
+							}
+						}
+						else
+						{
+							// joystick - direct control
+							if (controlmode == 0)	// rotate
+							{
+								if (Math.abs(axes[0]) > 0.2)
+								{
+									vr_hlookat_speed = joystick_rotate_speed * axes[0];
+								}
+							}
+							else	// move
+							{
+							 	// ignore too small values, some vr-controllers, e.g. Windows MR ones, are constantly reporting small wrong values
+								diraccel.x = Math.abs(axes[0]) > 0.2 ? joystick_move_speed * +axes[0] : 0;
+								diraccel.z = Math.abs(axes[1]) > 0.2 ? joystick_move_speed * -axes[1] : 0;
+							}
+						}
+					}
+				}
+			}
+
+			var xz_speed = Math.sqrt(diraccel.x*diraccel.x + diraccel.z*diraccel.z);
+			if (xz_speed > 0)
+			{
+				var speedup = control.speed * (movefaster ? 3 : 1) * frame_acceleration;
+
+				add_view_dependent_velocity(diraccel.x * speedup, 0, diraccel.z * speedup);
+			}
+
+			if (do_ground_collision == false)
+			{
+				// move up or down
+				velocity.y -= 0.5 * control.speed * diraccel.y * frame_acceleration;
+			}
+
+			control.panomousebuttons = 1;	// allow controlling the pano with the left mouse button
+
+			if (krpano.pressedelement == null && ((mouse.leftbutton && mouse.ctrlkey) || mouse.middlebutton || mouse.rightbutton))
+			{
+				if (mouse.leftbutton)
+					control.panomousebuttons = 0;	// disable controlling the pano with the left mouse button, move instead now
+
+				var pan_vertical = mouse.middlebutton;
+
+				if (mouse.ctrlkey || mouse.altkey)
+					pan_vertical = !pan_vertical;
+					
+				if (do_ground_collision) pan_vertical = 0;
+
+				var dragspeed = 0.1 * frame_acceleration * control.speed * 16.0/dt * (1.0 + view.oz/1000.0);
+				var dx = -dragspeed * mouse.dx;
+				var dy = pan_vertical ? dragspeed * mouse.dy : 0;
+				var dz = pan_vertical ? 0 : dragspeed * mouse.dy;
+
+				add_view_dependent_velocity(dx,dy,dz);
+			}
+
+			var vspeed = velocity.length();
+			if (vspeed > 0)
+			{
+				// simple collision testing
+				if (control.collision && view.oz < 200)		// do collision testing only in non-dollhouse-view
+				{
+					var hit = krpano.actions.raycast(view.tx, view.ty + ty_raycast_offset, view.tz, velocity.x, velocity.y, velocity.z);
+					if (hit)
+					{
+						if (hit.d > 0 && hit.d < control.stopdistance)
+						{
+							// slide along walls
+							var vlen = velocity.length();
+							if (vlen > 0)
+							{
+								var pushback = -(control.stopdistance - hit.d) / vlen * control.moveback;
+
+								view.tx += pushback * velocity.x;
+								view.ty += pushback * velocity.y;
+								view.tz += pushback * velocity.z;
+
+								var hitscale = (velocity.x*hit.nx + velocity.y*hit.ny + velocity.z*hit.nz) * control.bounceback;
+
+								velocity.x -= hit.nx * hitscale;
+								velocity.y -= hit.ny * hitscale;
+								velocity.z -= hit.nz * hitscale;
+							}
+						}
+					}
+				}
+
+				view.tx += velocity.x;
+				view.ty += velocity.y;
+				view.tz += velocity.z;
+			}
+
+			var groundlevel = 0;
+
+			if (do_ground_collision)
+			{
+				var floorlevel = control.eyelevel;
+				var jump_pressed = diraccel.y > 0;
+				var crouch_pressed = diraccel.y < 0;
+
+				if (crouch_pressed)
+				{
+					floorlevel *= 0.6;
+				}
+
+				if (webvr && control.usevrfloorlevel && webvr.floorlevel > 0.0)
+				{
+					// take the real phyiscal floor level
+					floorlevel = control.eyelevel = webvr.floorlevel;
+				}
+
+				var floorhit = krpano.actions.raycast(view.tx, view.ty, view.tz, 0, +1.0, 0);
+
+				if (floorhit && floorhit.d > 0)
+				{
+					groundlevel = floorhit.y;
+
+					var foot_floor_distance = floorhit.d - floorlevel;
+
+					if (Math.abs(foot_floor_distance) < 1.0)
+					{
+						// on the floor, even out small differences
+						view.ty += foot_floor_distance;
+						jumping = false;
+						velocity.y = 0;
+					}
+					else if (foot_floor_distance <= 30.0)	// 30.0 = smooth also walking stairs down
+					{
+						if (jumping == false || velocity.y > 0)
+						{
+							// below the floor => push up (but smoothed for nicer stairwalks)
+							view.ty += foot_floor_distance * smoothlevelchanges;
+						}
+
+						if (foot_floor_distance <= 1.0)
+						{
+							jumping = false;
+							velocity.y = 0;
+						}
+					}
+					else if (foot_floor_distance > 1.0)
+					{
+						var gravity = 4.0;
+
+						// in the air => apply gravity
+						if (velocity.y < 0.0 && jump_pressed)
+						{
+							gravity = 1.5;	// use a lower graviy as long as holding the jump key
+							jumping = true;
+						}
+
+						velocity.y += gravity * frame_acceleration;
+					}
+
+					if (velocity.y == 0 && jump_pressed)
+					{
+						var jump_inertia = 30.0;
+
+						velocity.y -= jump_inertia / inertia;
+
+						jumping = true;
+					}
+				}
+				else
+				{
+					// no floor? maybe below the floor? => trace a ray upward
+					var backup_cull = krpano.image.depthmap.cull;
+					krpano.image.depthmap.cull = "twosided";	// use the front- and back-face for hit-testing in this case
+					floorhit = krpano.actions.raycast(view.tx, view.ty, view.tz, 0, -1.0, 0);
+					krpano.image.depthmap.cull = backup_cull;
+
+					if (floorhit && floorhit.d > 0)
+					{
+						// shift up
+						view.ty = floorhit.y - floorlevel;
+					}
+				}
+			}
+			else
+			{
+				// optionally use a given image floorlevel
+				if (webvr && webvr.floorlevel > 0.0 && control.movemode == "walking")
+				{
+					var image_vrfloorlevel = Number(krpano.image.vrfloorlevel);
+					if ( !isNaN(image_vrfloorlevel) )
+					{
+						view.ty = image_vrfloorlevel - webvr.floorlevel;
+					}
+				}
+			}
+
+			if (vr_hlookat_speed != 0 && webvr)
+			{
+				webvr.hlookatoffset += vr_hlookat_speed * frame_acceleration;
+			}
+		});
+	]]></action>
+
+
+
+	<!-- info texts -->
+	<layer name="controls_info" keep="true"
+		type="text"
+		enabled="false"
+		css="color:#FFFFFF;text-align:center;"
+		bgalpha="0.0"
+		txtshadow="0 1 4 0x000000 1.0"
+		align="center"
+		y="+25%"
+		text=""
+		alpha="0"
+		onloaded="controls_showinfo('Walk around using the[br]Keyboard Arrow- or W,A,S,D-keys');"
+		devices="desktop"
+		/>
+
+
+	<action name="controls_showinfo" scope="local" args="info, time">
+		if (control.showinfos,
+			tween(layer[controls_info].alpha,1.0,0.1);
+			layer[controls_info].text = info;
+			delayedcall(controls_info, 3.0, tween(layer[controls_info].alpha,0.0,0.5); );
+		);
+	</action>
+
+
+	<!-- onscreen joypad -->
+	<layer name="joypad" keep="true" type="container"
+		visible="link:control.joypad"
+		align="rightbottom" y="20" x="link:stagewidth:stagewidth LT 500 ? 20 : 64"
+		zorder="link:control.uizorder"
+		width="110" height="110" bgroundedge="110"
+		bgcolor="0xFFFFFF" bgalpha="0.3" bgshadow="0 0 0 1 0xFFFFFF 0.5" bgblur="2"
+		css="color:#FFFFFF;text-align:center;" txtshadow="0 1 4 0x000000 1.0"
+		/>
+
+	<layer name="joypad_grip" keep="true" type="container"
+		parent="joypad" bgcapture="true"
+		align="center" width="80" height="80" bgroundedge="80"
+		bgcolor="0xFFFFFF" bgalpha="0.5"
+		bgborder="1 0xFFFFFF 0.5" bgshadow="5 10 50 0 0x000000 0.5"
+		ondown="joypad_dragcontrol();"
+		/>
+
+	<action name="joypad_dragcontrol" scope="local" type="js"><![CDATA[
+
+		krpano.tween(caller.parentobject, {alpha:0.4});
+
+		var padsize = caller.parentobject.pixelwidth;
+		var sticksize = caller.pixelwidth;
+		var stickrange = (padsize - sticksize) * 0.5 * 1.4;
+		var speed = 3;
+
+		krpano.actions.asyncloop( function()
+		{
+			if (caller.pressed)
+			{
+				var dx = (krpano.mouse.x - krpano.mouse.downx);
+				var dy = (krpano.mouse.y - krpano.mouse.downy);
+
+				var dl = Math.sqrt(dx*dx + dy*dy);
+				if (dl > 0)
+				{
+					dx /= dl;
+					dy /= dl;
+					dl = Math.min(dl,padsize) / padsize;
+					dl = Math.pow(dl,1.2);
+					dx *= 0.5 * dl;
+					dy *= 0.5 * dl;
+				}
+
+				caller.ox = stickrange * dx;
+				caller.oy = stickrange * dy;
+				
+				krpano.control.diraccel.x = dx * speed;
+				krpano.control.diraccel.z = -dy * speed;
+
+				return true;
+			}
+			else
+			{
+				krpano.control.diraccel.x = 0;
+				krpano.control.diraccel.z = 0;
+
+				krpano.tween(caller.parentobject, {alpha:1.0});
+				krpano.tween(caller, {ox:0,oy:0}, 0.1);
+
+				return false;
+			}
+		});
+	]]></action>
+
+	<layer name="joypad_levelcontrol" keep="true" type="container"
+		visible="link:control.levelcontrol"
+		align="rightbottom" x="24" y="link:stagewidth:stagewidth LT 500 ? 140 : 20"
+		zorder="link:control.uizorder"
+		width="20" height="60" bgroundedge="60"
+		bgcolor="0xFFFFFF" bgalpha="0.3" bgshadow="0 0 0 1 0xFFFFFF 0.5" bgblur="2"
+		css="color:#FFFFFF;text-align:center;" txtshadow="0 1 4 0x000000 1.0"
+		/>
+
+	<layer name="joypad_levelcontrol_grip" keep="true" type="container"
+		parent="joypad_levelcontrol" bgcapture="true"
+		align="center" width="28" height="28" bgroundedge="28"
+		bgcolor="0xFFFFFF" bgalpha="0.5"
+		bgborder="1 0xFFFFFF 0.5" bgshadow="5 10 50 0 0x000000 0.5"
+		ondown="joypad_levelcontrol();"
+		/>
+
+	<action name="joypad_levelcontrol" scope="local" type="js"><![CDATA[
+
+		krpano.tween(caller.parentobject, {alpha:0.4});
+
+		var padsize = caller.parentobject.pixelheight;
+		var sticksize = caller.pixelheight;
+		var stickrange = (padsize - sticksize) * 0.5 * 2.5;
+		var speed = 1.5;
+
+		krpano.actions.asyncloop( function()
+		{
+			if (caller.pressed)
+			{
+				var dy = (krpano.mouse.y - krpano.mouse.downy);
+
+				var dl = Math.abs(dy);
+				if (dl > 0)
+				{
+					dy /= dl;
+					dl = Math.min(dl,padsize) / padsize;
+					dy *= 0.5 * dl;
+				}
+
+				caller.oy = stickrange * dy;
+
+				krpano.control.diraccel.y = -dy * speed;
+
+				return true;	// keep looping
+			}
+			else
+			{
+				krpano.control.diraccel.y = 0;
+
+				krpano.tween(caller.parentobject, {alpha:1.0});
+				krpano.tween(caller, {ox:0,oy:0}, 0.1);
+
+				return false;
+			}
+		});
+	]]></action>
+	
+
+</krpano>

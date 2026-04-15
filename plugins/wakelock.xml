@@ -1,0 +1,67 @@
+<krpano><action autorun="preinit" type="js" protect="true"><![CDATA[
+	
+	var wakelock_support = false;
+	var wakelock_handle = null;
+	
+	if (navigator && navigator.wakeLock && navigator.wakeLock.request)
+	{
+		wakelock_support = true;
+	}
+	
+	function wakelock_api(enable)
+	{
+		if (enable && wakelock_support)
+		{
+			if (wakelock_handle == null)
+			{
+				try
+				{
+					var wakelock_promise = navigator.wakeLock.request('screen');
+					
+					if (wakelock_promise && wakelock_promise.then)
+					{
+						wakelock_promise.then( function(handle)
+						{
+							if (handle)
+							{
+								wakelock_handle = handle;
+								wakelock_handle.addEventListener('release', function(){ wakelock_handle = null; });
+							}
+						}).catch(function(err)
+						{
+							krpano.trace(2,"Wakelock Error:" + err);
+						});
+					}
+				}
+				catch(err)
+				{
+					krpano.trace(2,"Wakelock Error:" + err);
+				}
+			}
+		}
+		else	// disable wakelock
+		{
+			if (wakelock_handle)
+			{
+				wakelock_handle.release();
+				wakelock_handle = null;
+			}
+		}
+	}
+	
+	
+	// krpano API
+	
+	krpano.wakelocksupport = wakelock_support;
+
+	krpano.requestwakelock = function()
+	{
+		wakelock_api(true);
+	}
+	
+	krpano.releasewakelock = function()
+	{
+		wakelock_api(false);
+	}
+	
+]]></action></krpano>

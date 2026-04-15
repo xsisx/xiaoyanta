@@ -1,0 +1,184 @@
+<krpano debugmode="true" debugjsplugins="true" debugjsactions="true">
+	
+	<include url="%VIEWER%/plugins/webvr.xml" />
+	<include url="%VIEWER%/plugins/controls3d.xml" />
+	<include url="%VIEWER%/plugins/iphone_fullscreen_swipe.xml" />
+	<include url="%VIEWER%/plugins/vr_and_anaglyph_buttons.xml" />
+	<include url="%VIEWER%/plugins/drag3d.xml" />
+	
+	<webvr postracking="true" />
+	
+	<!-- load either the open source plugin (1) or the normal one (0) -->
+	<plugin api="threejs" keep="true"
+		url="calc:1 ? '%CURRENTXML%/threejs_krpanoplugin_opensource.js' : '%VIEWER%/plugins/threejs_krpanoplugin.js'"
+		integratedrendering="true"
+		useembeddedthreejs="false"
+		es6modules="true"
+		adjustlightfalloff="false"
+		ambientlight="0"
+		shadowmap="pcf"
+		raycastcheck="visible"
+		onready="threejs_onready()"
+		/>
+	
+	
+	<display depthbuffer="true" depthrange="5,100000" />
+
+	
+	<scene name="s1" autoload="true">
+		<image objectsize="infinity">
+			<preview url="../../webvr/panos/intro/preview.jpg" />
+			<cube url="../../webvr/panos/intro/pano_%s.jpg" />
+		</image>
+		
+		<hotspot name="spot1"
+			type="threejs"
+			url="../models/damagedhelmet.glb"
+			depth="0" tx="0" ty="0" tz="300"
+			hittest="true"
+			ondown="drag3d();"
+			onclick="set3dtransition(world,0,0,0); loadscene(s2,null,MERGE|KEEPMOVING,BLEND(2));"
+			onover="tween(hotspot[spot1info].alpha, 1.0);"
+			onout="if(hotspot[spot1info], tween(hotspot[spot1info].alpha, 0.0));"
+			/>
+			
+		<hotspot name="spot1info"
+			type="text"
+			enabled="false"
+			renderer="webgl"
+			oversampling="2"
+			zoom="true"
+			template="x={{tx:roundval(tx,1)}} y={{ty:roundval(ty,1)}} z={{tz:roundval(tz,1)}}"
+			alpha="0.0"
+			scale="0.5"
+			ath="link:hotspot[spot1].ath"
+			atv="link:hotspot[spot1].atv"
+			depth="link:hotspot[spot1].depth"
+			tx="link:hotspot[spot1].tx"
+			ty="link:hotspot[spot1].ty"
+			tz="link:hotspot[spot1].tz"
+			edge="top"
+			oy="58"
+			/>
+			
+	</scene>
+	
+	<scene name="s2">
+		<image objectsize="infinity">
+			<sphere url="../../depthmap/tuscany/sky.jpg" />
+		</image>
+		
+		<hotspot name="spot2"
+			type="threejs"
+			url="../models/damagedhelmet.glb"
+			depth="0" tx="0" ty="0" tz="500"
+			hittest="true"
+			ondown="drag3d();"
+			onclick="set3dtransition(world,0,0,0); loadscene(s1,null,MERGE|KEEPMOVING,BLEND(2));"
+			/>
+	</scene>
+	
+		
+	<action name="threejs_onready" type="js"><![CDATA[
+		
+		var THREE = krpano.threejs.THREE;
+		var scene = krpano.threejs.scene
+		
+		// show some infos
+		console.log("ThreeJS Plugin:", caller.loadedurl.indexOf("opensource") > 0 ? "Open Source" : "Normal");
+		console.log("ThreeJS Version:", THREE.REVISION);
+		
+		// enable the cache
+		THREE.Cache.enabled = true;
+		
+		// add lights
+		var ambientlight = new THREE.AmbientLight();
+		ambientlight.intensity = 2.0;
+		ambientlight.color.setHex(0xFFFFFF);
+		scene.add(ambientlight);
+		
+		var light = new THREE.DirectionalLight();
+		light.intensity = 7.0;
+		light.position.set(0, 100, 0, 1.0);
+		light.target.position.set(0,0,0, 1.0);
+		scene.add(light.target);
+		
+		// move the light with the camera to have shadows also around/near the camera
+		krpano.asyncloop( function()
+		{
+			krpano.threejs.krpano_to_threejs_position(light.position,        0,0,0, krpano.view.tx, krpano.view.ty - 10000, krpano.view.tz);
+			krpano.threejs.krpano_to_threejs_position(light.target.position, 0,0,0, krpano.view.tx, krpano.view.ty,         krpano.view.tz);
+			
+			// loop as long as the threejs plugin is loaded
+			return caller.loaded;
+		});
+		
+		// shadows
+		light.castShadow = true;
+		light.shadow.bias = -0.00001;
+		light.shadow.normalBias = +0.01;
+		
+		var range = 7.0;
+		light.shadow.camera.top = range;
+		light.shadow.camera.bottom = -range;
+		light.shadow.camera.left = -range;
+		light.shadow.camera.right = range;
+		light.shadow.mapSize.set(1024,1024);
+		
+		scene.add(light);
+		
+		// add a floor
+		if (1)
+		{
+			var material = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.5, metalness:0.0, side:THREE.DoubleSide});
+			
+			var textureLoader = new THREE.TextureLoader();
+			textureLoader.load( krpano.parsepath('%CURRENTXML%/../models/floor.jpg'), 
+				function (map)
+				{
+					map.anisotropy = 4;
+					map.colorSpace = THREE.SRGBColorSpace;
+					map.wrapS = THREE.MirroredRepeatWrapping;
+					map.wrapT = THREE.RepeatWrapping;
+					map.anisotropy = 4;
+					map.repeat.set(100, 100);
+					
+					material.map = map;
+					material.needsUpdate = true;
+				}
+			);
+
+			// a very large floor
+			var mesh = new THREE.Mesh( new THREE.PlaneGeometry(1000, 1000), material );
+			mesh.position.y = -1.6;
+			mesh.rotation.x = -Math.PI/2;
+			mesh.receiveShadow = true;
+			mesh.castShadow = true;
+			scene.add( mesh );
+		}
+		
+	]]></action>
+	
+
+	<data name="info">
+		krpano ThreeJS Plugin - 'Open Source' Version
+		
+		This is a simplified and stripped down version of the krpano ThreeJS Plugin.
+		It shows how the renderer and hittest integration works and how to use 3D Models as hotspots.
+	</data>
+		
+	<layer name="info" keep="true"
+		type="text"
+		text="data:info"
+		width="90%"
+		bg="false"
+		css="font-family:monospace; white-space:pre-line; color:#FFFFFF; font-size:12px;"
+		trimwhitespace="true"
+		txtshadow="0 1 4 0x000000 1.0"
+		align="top"
+		y="100"
+		onclick="set(enabled,false); tween(alpha,0,0.5,default,remove());"
+		onloaded="delayedcall(12, onclick() );"
+		/>
+
+</krpano>

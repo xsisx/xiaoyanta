@@ -1,0 +1,46 @@
+<krpano>
+	
+	<!--
+		A simple action for dragging 3D-model hotspots
+		in 3D-space along the current view/projection plane.
+		
+		Usage:
+		- Just call drag3d() in the hotspot ondown event.
+		- Non 3D-model hotspots need to have hittest=true set.
+	-->
+	
+	<action name="drag3d" type="js"><![CDATA[
+		
+		var hit = caller.hit;
+		if (hit)
+		{
+			var view = krpano.view;
+			var mouse = krpano.mouse;
+			
+			var viewx = view.tx - view.ox_rotated;
+			var viewy = view.ty - view.oy_rotated;
+			var viewz = view.tz - view.oz_rotated;
+		
+			var distance = view.dir.x*(hit.x - viewx) + view.dir.y*(hit.y - viewy) + view.dir.z*(hit.z - viewz);
+			
+			var startx = caller.tx - viewx;
+			var starty = caller.ty - viewy;
+			var startz = caller.tz - viewz;
+			
+			var p1 = view.unproject(mouse.x, mouse.y, distance, true);
+			
+			krpano.asyncloop(function()
+			{
+				var p2 = view.unproject(mouse.x, mouse.y, distance, true);
+						
+				caller.tx = startx + view.tx - view.ox_rotated + (p2.x - p1.x);
+				caller.ty = starty + view.ty - view.oy_rotated + (p2.y - p1.y);
+				caller.tz = startz + view.tz - view.oz_rotated + (p2.z - p1.z);
+				
+				return caller.pressed;
+			});
+		}
+		
+	]]></action>
+	
+</krpano>

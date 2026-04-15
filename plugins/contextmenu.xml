@@ -1,0 +1,79 @@
+﻿<krpano>
+	
+	<!--
+		contextmenu.xml
+		krpano 1.23
+		
+		A helper script for changing the control-modes and 
+		selecting different viewing projections via the context-menu.
+	-->
+	
+	<contextmenu fullscreen="true" versioninfo="true">
+		<item name="kr" caption="KRPANO" />
+		<item name="fs" caption="FULLSCREEN" />
+		<item name="cm" separator="above" caption="link:control.mode:'Control Mode: ' +
+			'[a href=[sq]krpano:set(control.mode,drag);[sq]   style=[sq]color:inherit;text-decoration:' + (control.mode == 'drag'   ? 'underline' : 'none') + ';[sq]]Drag[/a] | ' +
+			'[a href=[sq]krpano:set(control.mode,follow);[sq] style=[sq]color:inherit;text-decoration:' + (control.mode == 'follow' ? 'underline' : 'none') + ';[sq]]Follow[/a] | ' +
+			'[a href=[sq]krpano:set(control.mode,moveto);[sq] style=[sq]color:inherit;text-decoration:' + (control.mode == 'moveto' ? 'underline' : 'none') + ';[sq]]MoveTo[/a]'"
+			/>
+		<item name="nv" caption="Normal View"        onclick="cm_normal_view();"        showif="view.vlookatrange == 180" separator="above" />
+		<item name="fv" caption="Fisheye View"       onclick="cm_fisheye_view();"       showif="view.vlookatrange == 180" devices="webgl"   />
+		<item name="sv" caption="Stereographic View" onclick="cm_stereographic_view();" showif="view.vlookatrange == 180" devices="webgl"   />
+		<item name="av" caption="Architectural View" onclick="cm_architectural_view();" showif="view.vlookatrange == 180"                   />
+		<item name="pv" caption="Pannini View"       onclick="cm_pannini_view();"       showif="view.vlookatrange == 180" devices="webgl"   />
+		<item name="lp" caption="Little Planet View" onclick="cm_littleplanet_view();"  showif="view.vlookatrange == 180" devices="webgl"   />
+	</contextmenu>
+
+
+	<action name="cm_look_straight">
+		if(view.vlookat LT -80 OR view.vlookat GT +80,
+			tween(view.vlookat, 0.0, 1.0, easeinoutsine);
+			tween(view.fov,     100, distance(150,0.8));
+		  );
+	</action>
+
+	<action name="cm_normal_view">
+		cm_look_straight();
+		tween(view.architectural, 0.0, distance(1.0,0.5));
+		tween(view.pannini,       0.0, distance(1.0,0.5));
+		tween(view.fisheye,       0.0, distance(1.0,0.5));
+	</action>
+
+	<action name="cm_architectural_view">
+		cm_look_straight();
+		tween(view.architectural, 1.0, distance(1.0,0.5));
+		tween(view.pannini,       0.0, distance(1.0,0.5));
+		tween(view.fisheye,       0.0, distance(1.0,0.5));
+	</action>
+
+	<action name="cm_fisheye_view">
+		cm_look_straight();
+		tween(view.architectural, 0.0,  distance(1.0,0.5));
+		tween(view.pannini,       0.0,  distance(1.0,0.5));
+		tween(view.fisheye,       0.35, distance(1.0,0.5));
+	</action>
+
+	<action name="cm_stereographic_view">
+		cm_look_straight();
+		tween(view.architectural, 0.0, distance(1.0,0.5));
+		tween(view.pannini,       0.0, distance(1.0,0.5));
+		tween(view.fisheye,       1.0, distance(1.0,0.8));
+	</action>
+
+	<action name="cm_pannini_view">
+		cm_look_straight();
+		tween(view.architectural, 0.0, distance(1.0,0.5));
+		tween(view.pannini,       1.0, distance(1.0,0.8));
+		if(view.fisheye LT 0.1, tween(view.fisheye, 1.0, distance(1.0,0.8)); );
+	</action>
+
+	<action name="cm_littleplanet_view">
+		tween(view.architectural, 0.0, distance(1.0,0.5));
+		tween(view.pannini,       0.0, distance(1.0,0.5));
+		tween(view.fisheye,       1.0, distance(1.0,0.8));
+		tween(view.fov,           150, distance(150,0.8));
+		tween(view.vlookat,        90, distance(100,0.8));
+		tween(view.hlookat, (view.hlookat + 100.0 + 45.0*random), distance(100,0.8));
+	</action>
+
+</krpano>

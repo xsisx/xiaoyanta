@@ -1,0 +1,438 @@
+<krpano>
+
+	<!--
+		measure3d.xml
+		krpano 1.23
+
+		https://krpano.com/plugins/xmlextensions/#measure3d
+
+		A little helper tool and example for doing measurements in Depthmap-Panos / 3D-Models.
+	-->
+
+
+	<!-- settings -->
+	<measure3d
+		ui.bool="true"
+		ui_pos.normal="left,10,0"
+		ui_pos.mobile="lefttop,10,10"
+		ui_dragable.bool="true"
+		gap.number="0.0"
+		showslope.bool="false"
+		unit_format="roundval(v,1) + ' cm'"
+		/>
+
+
+	<!-- css styles for the default user-interface -->
+	<cssstyles>
+		.m3d_title { padding-bottom:3px }
+		div.m3d_button a { color:white; text-decoration:none; }
+		div.m3d_button a:hover { color:white; text-decoration:underline; }
+	</cssstyles>
+
+
+	<!-- the default user-interface -->
+	<data name="measure3d_ui_html"><![CDATA[
+		<div class="m3d_title">3D Measurements:</div>
+		<div class="m3d_button">📏 <a href="event:start_measuring_between_points(true)">between two points</a></div>
+		<div class="m3d_button">📐 <a href="event:start_measuring_between_surfaces(true)">between opposize surfaces</a></div>
+		<div class="m3d_button">💾 <a href="event:save_measurements()">save measurements</a></div>
+	]]></data>
+
+
+
+	<action autorun="onstart" scope="local" type="Javascript">
+		var measure3d = krpano.measure3d;
+
+		if(measure3d.ui)
+		{
+			var ui = krpano.addlayer("measure3d_ui");
+
+			var ui_pos = measure3d.ui_pos.split(",");
+
+			ui.setvars({
+				keep:true,
+				type:"text",
+				align:ui_pos[0], x:ui_pos[1], y:ui_pos[2],
+				text:"data:measure3d_ui_html",
+				css:"color:white;",
+				bgcolor:0x2D3E50,
+				bgalpha:0.8,
+				bgborder:0,
+				bgroundedge:1,
+				bgshadow:"0 4 10 0x000000 0.3",
+				cursor:"default",
+				padding:"8 10"
+			});
+
+			// make the layer dragable
+			if (measure3d.ui_dragable)
+			{
+			 	ui.cursor = "move";
+				ui.ondown = "changealign(lefttop); asyncloop(pressed, x+=mouse.dx; y+=mouse.dy; clamp(x,0,calc(stagewidth-pixelwidth)); clamp(y,0,calc(stageheight-pixelheight)); );";
+			}
+		}
+	</action>
+
+
+
+	<!-- styles/designs for the measurement elements -->
+
+	<style name="measure3d_cursor"
+		type="text"
+		width="9" height="9" scale="0.2"
+		oversampling="3"
+		mipmapping="true"
+		bgcolor="0x000000"
+		bgalpha="0.7"
+		bgroundedge="25"
+		bgborder="20 0xFFFFFF 0.25"
+		bgborderblend="false"
+		bgshadow="0 0 5 0x000000 0.5"
+		distorted="true"
+		depth="0"
+		depthbuffer="false"
+		depthoffset="-100"
+		depthwrite="false"
+		rotationorder="zxy"
+		enabled="false"
+		zorder="0"
+		/>
+
+	
+	<style name="measure3d_marker"
+		type="text"
+		enabled="false"
+		width="9"
+		height="9"
+		bgroundedge="12"
+		oversampling="3"
+		mipmapping="true"
+		bgcolor="0x000000"
+		bgalpha="0.8"
+		bgborder="7 0xFFFFFF 0.5"
+		bgborderblend="false"
+		bgshadow="0 0 2 0x000000 0.8"
+		scale="0.25"
+		zoom="true"
+		distorted="true"
+		rotationorder="zxy"
+		twosided="true"
+		depth="0"
+		depthbuffer="false"
+		depthwrite="false"
+		depthoffset="-200"
+		zorder="1"
+		/>
+
+
+	<style name="measure3d_line"
+		polyline="true"
+		borderwidth="3"
+		borderwidth3d="true"
+		bordercolor="0x00FF00"
+		bordergradient="0xFF000000|0x00FFFFFF|0xFF000000|4"
+		borderalpha="0.7"
+		depthbuffer="false"
+		depthwrite="false"
+		depthoffset="-200"
+		enabled="false"
+		zorder="1"
+		/>
+		
+
+	<style name="measure3d_linetext"
+		type="text"
+		css="font-size:14px;"
+		textalign="center"
+		bgcolor="0xFFFFFF"
+		bgalpha="0.8"
+		bgborder="1 0x0000000 0.7"
+		bgroundedge="7"
+		padding="2 4"
+		depth="0"
+		depthbuffer="false"
+		depthoffset="-200"
+		zorder="2"
+		/>
+
+
+	<!-- API actions for starting/stopping the measurements -->
+
+	<action name="start_measuring_between_points" scope="local" args="showinfo">
+		if(showinfo, measure3d_showinfo('double click to start/stop measuring'));
+		measure3d_start(1);
+	</action>
+
+	<action name="start_measuring_between_surfaces" scope="local" args="showinfo">
+		if(showinfo, measure3d_showinfo('double click to measure'));;
+		measure3d_start(2);
+	</action>
+	
+	<action name="stop_measuring" scope="local">
+		global.measure3d_loop = false;
+		events.ondoubleclick = null;
+	</action>
+	
+	
+	
+	<action name="save_measurements" type="js"><![CDATA[
+		var xmlcode = '';
+		krpano.hotspot.forEach( function(hs)
+		{
+			if(hs.style == 'measure3d_line' || hs.style == 'measure3d_linetext' || hs.style == 'measure3d_marker')
+			{
+				xmlcode += hs.getxml() + "\n";
+			}
+		});
+		
+		navigator.clipboard.writeText(xmlcode);
+		
+		krpano.call("measure3d_showinfo('the measurement xml code[br]was copied to the clipboard');");
+	]]></action>
+
+
+	<!-- events: stop on ESC key -->
+	<events name="measure3d" keep="true"
+		onkeydown="if(keycode == 27, stop_measuring(); );"
+		/>
+
+
+	<action name="measure3d_showinfo" scope="local" args="infotext">
+		addlayer('measure3d_infotext',l);
+		set(l, type=text, html=get(infotext), css='font-size:20px;font-weight:bold;color:white;text-align:center', bg=false, txtshadow='0 1 4 0x000000 1.0', align=center, enabled=false, alpha=0, width=50%);
+		tween(l.alpha, 1.0);
+		delayedcall(3.0,
+			tween(l.alpha, 0.0, 0.25, default, removelayer(get(l.name)); );
+		);
+	</action>
+
+	
+
+	<action name="measure3d_start" type="Javascript"><![CDATA[
+		
+		var measure3d = krpano.measure3d;
+		var gap = measure3d.gap;
+		
+		var mode = 1*args[1];
+
+		var hs = krpano.addhotspot("auto", "webgl");
+		hs.loadstyle("measure3d_cursor");
+
+		var line = null;
+		var line_p1 = null;
+		var line_p2 = null;
+		var p1marker = null;
+		var p2marker = null;
+
+		krpano.events.ondoubleclick = function()
+		{
+			var hit = null;
+
+			if (line == null)
+			{
+				line = krpano.addhotspot("auto", "webgl");
+				line.loadstyle("measure3d_line");
+
+				line_p1 = line.point.createItem(0);
+				line_p2 = line.point.createItem(1);
+				line_p1.x = line_p2.x = hs.tx;
+				line_p1.y = line_p2.y = hs.ty;
+				line_p1.z = line_p2.z = hs.tz;
+				
+				p1marker = krpano.addhotspot("auto", "webgl");
+				p1marker.loadstyle("measure3d_marker");
+				p1marker.tx = line_p1.x;
+				p1marker.ty = line_p1.y;
+				p1marker.tz = line_p1.z;
+				p1marker.rx = hs.rx;
+				p1marker.ry = hs.ry;
+				p1marker.rz = hs.rz;
+
+				if (mode == 2)
+				{
+					hit = krpano.actions.raycastdepth(hs.tx, hs.ty, hs.tz, hs.nx, hs.ny, hs.nz);
+					if (hit)
+					{
+						line_p2.x = hit.x;
+						line_p2.y = hit.y;
+						line_p2.z = hit.z;
+					}
+					else
+					{
+						krpano.call("measure3d_showinfo('no hit')");
+						p1marker.remove();
+						line.remove();
+						return;
+					}
+				}
+				else
+				{
+					return;
+				}
+			}
+
+			// finish
+			var dx = line_p2.x - line_p1.x;
+			var dy = line_p2.y - line_p1.y;
+			var dz = line_p2.z - line_p1.z;
+			var length = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+			var lineinfo = krpano.addhotspot("auto", "webgl");
+			lineinfo.loadstyle("measure3d_linetext");
+
+			krpano.v = length;
+			krpano.actions.calc("v_formated", measure3d.unit_format);
+			lineinfo.html = krpano.v_formated;
+			
+			if (measure3d.showslope)
+			{
+				var y_angle = Math.atan2(-dy, Math.sqrt(dx*dx + dz*dz) ) / Math.PI * 180.0;
+				
+				lineinfo.html += "[br]" + Math.abs(y_angle).toFixed(2) + "°";
+			}
+			
+
+			lineinfo.deletehtml = "[span style='font-size:18px;color:red;vertical-align:middle;']❌[/span] Delete";
+
+			// place between the points
+			lineinfo.tx = 0.5*line_p1.x + 0.5*line_p2.x;
+			lineinfo.ty = 0.5*line_p1.y + 0.5*line_p2.y;
+			lineinfo.tz = 0.5*line_p1.z + 0.5*line_p2.z;
+
+			lineinfo.onclick = function()
+			{
+				if (lineinfo.backuphtml)
+				{
+					lineinfo.hs_line.remove();
+					lineinfo.hs_p1marker.remove();
+					lineinfo.hs_p2marker.remove();
+					lineinfo.remove();
+				}
+				else
+				{
+					lineinfo.backuphtml = lineinfo.html;
+					lineinfo.html = lineinfo.deletehtml;
+
+					krpano.actions.delayedcall(1, function()
+					{
+						if (lineinfo.backuphtml)
+						{
+							lineinfo.html = lineinfo.backuphtml
+							lineinfo.backuphtml = null;
+						}
+					});
+				}
+			}
+
+			if (krpano.device.mouse)
+			{
+				lineinfo.onover = function()
+				{
+					if (!lineinfo.backuphtml)
+					{
+						lineinfo.backuphtml = lineinfo.html;
+						lineinfo.html = lineinfo.deletehtml;
+					}
+				}
+
+				lineinfo.onout = function()
+				{
+					if (lineinfo.backuphtml)
+					{
+						lineinfo.html = lineinfo.backuphtml;
+						lineinfo.backuphtml = null;
+					}
+				}
+			}
+
+			p2marker = krpano.addhotspot("auto", "webgl");
+			p2marker.loadstyle("measure3d_marker");
+			p2marker.tx = line_p2.x;
+			p2marker.ty = line_p2.y;
+			p2marker.tz = line_p2.z;
+
+			p2marker.rx = (hit || hs).rx;
+			p2marker.ry = (hit || hs).ry;
+			p2marker.rz = (hit || hs).rz;
+
+			lineinfo.hs_line = line;
+			lineinfo.hs_p1marker = p1marker;
+			lineinfo.hs_p2marker = p2marker;
+
+			line = null;
+			line_p1 = null;
+			line_p2 = null;
+			p1marker = null;
+			p2marker = null;
+			
+			if (krpano.device.touch)
+			{
+				// stop after drawing one line on touch devices
+				krpano.call("stop_measuring();");
+			}
+		}
+
+		krpano.measure3d_loop = true;
+
+		krpano.actions.asyncloop("measure3d_loop",
+			function()
+			{
+				var hit = null;
+
+				if (krpano.hoveringelement == null || krpano.hoveringelement == hs || (krpano.hoveringelement && krpano.hoveringelement.hittest))
+				{
+					hit = krpano.actions.cursorraycast();
+				}
+
+				if (hit)
+				{
+					// optionally add a small gap/offset to the hit surface to avoid depthbuffer rendering problems
+					hs.tx = hit.x + hit.nx*gap;
+					hs.ty = hit.y + hit.ny*gap;
+					hs.tz = hit.z + hit.nz*gap;
+
+					// hotspot rotation
+					hs.rx = hit.rx;
+					hs.ry = hit.ry;
+					hs.rz = hit.rz;
+
+					// store also the normal of the hit-surface for later usage
+					hs.nx = hit.nx;
+					hs.ny = hit.ny;
+					hs.nz = hit.nz;
+
+					hs.visible = true;
+
+					if (line)
+					{
+						line.visible = true;
+					}
+
+					if (line_p2)
+					{
+						line_p2.x = hs.tx;
+						line_p2.y = hs.ty;
+						line_p2.z = hs.tz;
+					}
+				}
+				else
+				{
+					if (line)
+					{
+						line.visible = false;
+					}
+
+					hs.visible = false;
+				}
+			},
+			function()
+			{
+				if(line) line.remove();
+				if(p1marker) p1marker.remove();
+				hs.remove();
+			}
+		);
+
+	]]></action>
+
+</krpano>

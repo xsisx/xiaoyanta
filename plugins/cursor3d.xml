@@ -1,0 +1,202 @@
+<krpano>
+	<!--
+		Add a 3D navigation cursor
+		krpano 1.23
+	-->
+
+	<cursor3d
+		enabled.bool="true"
+		shownormal.bool="true"
+		vrsupport.bool="true"
+		url=""
+		style=""
+		size.number="20"
+		scale.number="1.0"
+		distancescale.number="0.0"
+		color.int="0xFFFFFF"
+		alpha.number="0.5"
+		border="1 0xFFFFFF 1.0"
+		normalcolor.int="0xFFFFFF"
+		normalalpha.number="1.0"
+		normallinewidth.number="3"
+		normallength.number="20"
+		onclick=""
+		ondoubleclick="cursor3d_movetohit()"
+		/>
+
+
+	<action name="init3dcursor" autorun="onstart" type="js"><![CDATA[
+		
+		var cursor3d = krpano.cursor3d;
+		
+		// skip if already added or if the krpano version is too old
+		if (cursor3d.hs || krpano.build < "2025-06-01") return;
+		
+		// create the hotspots
+		var hs = cursor3d.hs = krpano.addhotspot("cursor3d", "webgl");
+		hs.keep = true;
+		hs.enabled = false;
+		hs.type = "text";
+		hs.bgroundedge = 10000;
+		hs.distorted = true;
+		hs.depth = 0;
+		hs.oversampling = 5;
+		hs.mipmapping = true;
+		hs.rotationorder = "ZXY";	// needed for the raycast rotation values
+
+		// optionally render with depthbuffer:
+		//hs.depthbuffer = true;
+		//hs.depthwrite = false;
+		//hs.depthoffset = -10000.0;
+		
+		var hs_normal = cursor3d.hs_normal = krpano.addhotspot("cursor3d_normal", "webgl");
+		hs_normal.keep = true;
+		hs_normal.enabled = false;
+		hs_normal.polyline = true;
+		hs_normal.depth = 0;
+		
+		
+		// link the hotspot properties to the <cursor3d> settings
+		krpano.addChangeListener(cursor3d, "enabled",function(){ hs.visible  = cursor3d.enabled; hs_normal.visible = cursor3d.enabled && cursor3d.shownormal; })();
+		krpano.addChangeListener(cursor3d, "url",    function(){ if(cursor3d.url) hs.url = cursor3d.url; })();
+		krpano.addChangeListener(cursor3d, "size",   function(){ hs.width = hs.height = cursor3d.size; })();
+		krpano.addChangeListener(cursor3d, "color",  function(){ hs.bgcolor = cursor3d.color; })();
+		krpano.addChangeListener(cursor3d, "alpha",  function(){ hs.bgalpha = cursor3d.alpha; })();
+		krpano.addChangeListener(cursor3d, "border", function(){ hs.bgborder = cursor3d.border; })();
+		krpano.addChangeListener(cursor3d, "style",  function(){ if(cursor3d.style) hs.loadstyle(cursor3d.style); })();
+		
+		krpano.addChangeListener(cursor3d, "shownormal",      function(){ hs_normal.visible = cursor3d.enabled && cursor3d.shownormal; })();
+		krpano.addChangeListener(cursor3d, "normalcolor",     function(){ hs_normal.bordercolor = cursor3d.normalcolor; })();
+		krpano.addChangeListener(cursor3d, "normallinewidth", function(){ hs_normal.borderwidth = cursor3d.normallinewidth; })();
+		
+		
+		// handle events
+		krpano.events.addListener("onclick", function() {
+			if (cursor3d.hit && cursor3d.onclick) krpano.call(cursor3d.onclick);
+		});
+		
+		krpano.events.addListener("ondoubleclick", function() {
+			if (cursor3d.hit && cursor3d.ondoubleclick) krpano.call(cursor3d.ondoubleclick);
+		});
+		
+		// VR support
+		if (cursor3d.vrsupport)
+		{
+			krpano.events.addListener("webvr_onentervr", function() {
+				cursor3d.enabled = cursor3d.enabled && cursor3d.vrsupport && (krpano.webvr && krpano.webvr.iswebxr);
+			});
+			
+			krpano.events.addListener("webvr_onvrcontrollerbutton", function(vrcontrollerhotspot) {
+				if (vrcontrollerhotspot.vrcontroller.hand == "right"
+				 && vrcontrollerhotspot.vrbuttonstate == "up"
+				 && vrcontrollerhotspot.vrbuttonindex == 1)
+				{
+					krpano.call(cursor3d.onclick || cursor3d.ondoubleclick);
+				}
+			});
+		}
+
+
+		// update every frame
+		krpano.actions.renderloop( function()
+		{
+			var hit = null;
+		
+			if (cursor3d.enabled == false || krpano.hoveringelement)
+			{
+				hs.alpha = hs_normal.alpha = 0;
+				hit = null;
+			}
+			else
+			{
+				hit = krpano.actions.cursorraycast();
+				
+				if(hit)
+				{
+					hs.alpha = 1;
+				
+					hs.rx = hit.rx;
+					hs.ry = hit.ry;
+					hs.rz = hit.rz;
+					
+					hs.tx = hit.x;
+					hs.ty = hit.y;
+					hs.tz = hit.z;
+					
+					hs.scale = cursor3d.scale + hit.d * cursor3d.distancescale / 1000.0;
+					
+					var nl = cursor3d.normallength;
+					hs_normal.alpha = cursor3d.normalalpha;
+					hs_normal.points3d = [hit.x, hit.y, hit.z, hit.x + nl*hit.nx, hit.y + nl*hit.ny, hit.z + nl*hit.nz];
+				}
+				else
+				{
+					hs.alpha = hs_normal.alpha = 0;
+				}
+			}
+			
+			// store the current hit
+			cursor3d.hit = hit;
+		});
+		
+		
+		// create an API function for moving to the hit location
+		krpano.actions.cursor3d_movetohit = function()
+		{
+			var hit = cursor3d.hit;
+			if (hit)
+			{
+				var eyelevel = Number(krpano.depthmap_navigation ? krpano.depthmap_navigation.eyelevel : krpano.control.eyelevel);
+				if (isNaN(eyelevel) || eyelevel == 0)
+					eyelevel = 160.0;
+				
+				if (hit.ny < -0.8)
+				{
+					// hit on a floor
+					
+					var tx = hit.x;
+					var ty = hit.y - eyelevel;
+					var tz = hit.z;
+					
+					krpano.tween(krpano.view, {tx:tx, ty:ty, tz:tz}, 1.0);
+				}
+				else
+				{
+					// hit on a wall/ceiling or anything else
+					
+					var offset = 30.0;		// move 30cm away from the hit surface
+					var dx = offset * hit.nx;
+					var dy = offset * hit.ny;
+					var dz = offset * hit.nz;
+					
+					var tx = hit.x + dx;
+					var ty = hit.y + dy;
+					var tz = hit.z + dz;
+					
+					// from there raycast slightly slanted downwards to find a new location
+					var groundhit = krpano.actions.raycast(tx, ty, tz, hit.nx, hit.ny + 1.0, hit.nz);
+					if (groundhit)
+					{
+						tx = groundhit.x;
+						ty = groundhit.y - eyelevel;
+						tz = groundhit.z;
+						
+						dx = tx - hit.x;
+						dy = (ty - hit.y) * 0.5;	// look slightly toward the hit location
+						dz = tz - hit.z;
+						
+						krpano.tween(krpano.view, {tx:tx, ty:ty, tz:tz}, 1.0);
+						
+						var h = Math.atan2(-dx, -dz) * 180.0 / Math.PI;
+						var v = Math.atan2(-dy, Math.sqrt(dx*dx + dz*dz)) * 180.0 / Math.PI;
+						
+						krpano.actions.oninterrupt("break");
+						krpano.actions.lookto(h, v, 90, "tween(default,1.0)", true, false);
+					}
+				}
+			}
+		}
+		
+	]]></action>
+
+</krpano>

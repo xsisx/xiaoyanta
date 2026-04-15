@@ -1,0 +1,12 @@
+<krpano>
+
+	<!--
+		for backward compatibility
+		map 'depthmap_measure3d' to 'measure3d'
+	-->
+	
+	<include url="measure3d.xml" />
+	
+	<set var="depthmap_measure3d" val="get(measure3d)" />
+
+</krpano>

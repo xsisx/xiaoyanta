@@ -1,0 +1,19 @@
+<krpano>
+	
+	<action name="copy_to_clipboard" type="js" args="content"><![CDATA[
+		if (navigator.clipboard)
+		{
+			navigator.clipboard.writeText(content);
+		}
+		else
+		{
+			var textarea = document.createElement('textarea');
+			textarea.value = content;
+			krpano.display.viewerlayer.appendChild(textarea);
+			textarea.select();
+			document.execCommand('copy');
+			krpano.display.viewerlayer.removeChild(textarea);
+		}
+	]]></action>
+	
+</krpano>

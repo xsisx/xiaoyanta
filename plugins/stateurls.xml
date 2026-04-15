@@ -1,0 +1,28 @@
+<krpano>
+	<!--
+		State URLs
+		- extend <layer> or <hotspot> elements with 'overurl' and 'downurl' settings
+		
+		Usage:
+		
+		<hotspot ...
+			style="stateurl"
+			url="hotspot-normal.png"
+			overurl="hotspot-hovering.png"
+			downurl="hotspot-pressed.png
+			...
+			/>
+	-->
+
+	<style name="stateurls"
+		normurl=""
+		overurl=""
+		downurl=""
+		onloaded.addevent="if(!normurl AND url, normurl=url);"
+		onover.addevent="if(overurl, url=downurl AND pressed ? downurl : overurl);"
+		onout.addevent="url=downurl AND pressed ? downurl : normurl;"
+		ondown.addevent="if(downurl, url=downurl);"
+		onup.addevent="url=overurl AND hovering ? overurl : normurl;"
+		/>
+
+</krpano>

@@ -1,0 +1,12 @@
+<krpano>
+	
+	<!-- show small VR and Anaglyph-mode buttons in the left bottom corner -->
+	<layer name="toggle_anaglyph_mode" keep="true" url="icon_anaglyph.png" scale="0.5" align="leftbottom" x="20" y="60" onclick="switch(display.anaglyph);" />
+	<layer name="enter_vr_mode"        keep="true" url="icon_vr.png"       scale="0.5" scalechildren="false" align="leftbottom" x="20" y="25" onclick="if(webvr AND webvr.isavailable, webvr.enterVR(), tween(childobjects[0].alpha,1,0.1,default,tween(childobjects[0].alpha,0,1.5,easeinexpo)) );" >
+		<layer type="text" align="right" edge="left" x="-4" text="VR Mode not available!" bg="false" css="color:white;font-weight:bold;" txtshadow="0 0 2 0, 0 1 3 0" enabled="false" autoalpha="true" alpha="0" />
+	</layer>
+	
+	<!-- hide the VR button from the webvr.xml -->
+	<layer name="webvr_enterbutton" autoalpha="false" visible="false" />
+	
+</krpano>
